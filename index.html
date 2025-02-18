@@ -1,149 +1,97 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Question Splitter</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/4.0.2/tesseract.min.js"></script>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 20px;
-            text-align: center;
-        }
-        #output img {
-            display: block;
-            margin: 10px auto;
-            max-width: 80%;
-            border: 1px solid #ccc;
-            border-radius: 10px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        }
-        #output p {
-            margin-top: 10px;
-            font-size: 16px;
-            font-weight: bold;
-        }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Split Options from Image</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+    }
+    canvas {
+      border: 1px solid #ddd;
+      margin-top: 20px;
+    }
+    .options {
+      margin-top: 20px;
+    }
+    .option {
+      margin-bottom: 20px;
+    }
+  </style>
 </head>
 <body>
-    <h2>Upload Screenshot to Split Questions</h2>
-    <input type="file" id="imageUpload" accept="image/*">
-    <button onclick="processImage()">Start Processing</button>
-    <div id="output"></div>
+  <h1>Upload Image to Extract Options</h1>
+  <input type="file" id="imageInput" accept="image/*">
+  <canvas id="imageCanvas"></canvas>
+  <div class="options" id="optionsContainer"></div>
 
-    <script>
-        function processImage() {
-            const input = document.getElementById('imageUpload');
-            if (!input.files.length) return alert("Please upload an image!");
-            
-            const img = new Image();
-            const file = input.files[0];
-            const reader = new FileReader();
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@v2.1.1/dist/tesseract.min.js"></script>
+  <script>
+    const imageInput = document.getElementById('imageInput');
+    const imageCanvas = document.getElementById('imageCanvas');
+    const optionsContainer = document.getElementById('optionsContainer');
 
-            reader.onload = function(e) {
-                img.src = e.target.result;
-            };
-            reader.readAsDataURL(file);
+    const ctx = imageCanvas.getContext('2d');
 
-            img.onload = function() {
-                detectOptions(img);
-            };
-        }
+    imageInput.addEventListener('change', async (event) => {
+      const file = event.target.files[0];
+      if (!file) return;
 
-        function detectOptions(img) {
-            // Use Tesseract.js with custom OCR settings
-            Tesseract.recognize(img, 'eng', {
-                logger: info => console.log(info),
-                tessedit_pageseg_mode: 4, // PSM: Assume single-column text
-            })
-            .then(({ data }) => {
-                console.log("OCR Data:", data);
-                let lines = data.lines.map(line => ({
-                    text: line.text.trim(),
-                    y0: line.bbox.y0,
-                    y1: line.bbox.y1,
-                }));
-                console.log("Processed Lines:", lines);
+      const img = new Image();
+      img.src = URL.createObjectURL(file);
 
-                // Detect options A., B., C., D.
-                const options = detectOptionPositions(lines);
-                if (options) {
-                    splitImage(img, options);
-                } else {
-                    alert("Could not detect all options (A., B., C., D.). Please check the image.");
-                }
-            })
-            .catch(error => console.error("Tesseract error:", error));
-        }
+      img.onload = async () => {
+        imageCanvas.width = img.width;
+        imageCanvas.height = img.height;
+        ctx.drawImage(img, 0, 0);
 
-        function detectOptionPositions(lines) {
-            const optionRegex = /^[A-D]\.\s+/;
-            const detectedOptions = [];
+        const { data: { text } } = await Tesseract.recognize(img, 'eng');
+        const lines = text.split('\n');
 
-            for (let line of lines) {
-                if (line.text.match(optionRegex)) {
-                    detectedOptions.push(line);
-                }
-            }
+        // Find lines starting with "A. ", "B. ", "C. ", "D. "
+        const options = [];
+        lines.forEach((line, index) => {
+          if (/^[A-D]\./.test(line)) {
+            options.push({ text: line, index });
+          }
+        });
 
-            // Ensure all four options (A., B., C., D.) are detected in sequence
-            if (detectedOptions.length === 4) {
-                const yPositions = detectedOptions.map(opt => opt.y0);
-                if (isVerticallyAligned(yPositions)) {
-                    return {
-                        above: lines[0].y0,
-                        optionsStart: detectedOptions[0].y0,
-                        optionsEnd: detectedOptions[3].y1,
-                        below: lines[lines.length - 1].y1,
-                    };
-                }
-            }
-            return null;
-        }
+        if (options.length === 4) {
+          const optionRegions = options.map((option, i) => {
+            const nextIndex = i < options.length - 1 ? options[i + 1].index : lines.length;
+            const regionText = lines.slice(option.index, nextIndex).join('\n');
+            return { ...option, regionText };
+          });
 
-        function isVerticallyAligned(yPositions) {
-            for (let i = 0; i < yPositions.length - 1; i++) {
-                if (yPositions[i + 1] <= yPositions[i]) {
-                    return false;
-                }
-            }
-            return true;
-        }
+          optionsContainer.innerHTML = ''; // Clear previous results
 
-        function splitImage(img, positions) {
+          optionRegions.forEach((region, i) => {
             const canvas = document.createElement('canvas');
-            const ctx = canvas.getContext('2d');
-            const outputDiv = document.getElementById("output");
-            outputDiv.innerHTML = "";
+            const regionHeight = imageCanvas.height / lines.length * (region.regionText.split('\n').length);
+            const yStart = imageCanvas.height / lines.length * region.index;
 
-            // Part 1: Above options
-            createCroppedImage(img, 0, 0, img.width, positions.optionsStart, canvas, ctx, "Above Options");
+            canvas.width = imageCanvas.width;
+            canvas.height = regionHeight;
+            const context = canvas.getContext('2d');
+            context.drawImage(
+              imageCanvas,
+              0, yStart, imageCanvas.width, regionHeight,
+              0, 0, canvas.width, canvas.height
+            );
 
-            // Part 2: Options A. to D.
-            createCroppedImage(img, 0, positions.optionsStart, img.width, positions.optionsEnd - positions.optionsStart, canvas, ctx, "Options A. to D.");
-
-            // Part 3: Below options
-            createCroppedImage(img, 0, positions.optionsEnd, img.width, img.height - positions.optionsEnd, canvas, ctx, "Below Options");
+            const div = document.createElement('div');
+            div.classList.add('option');
+            div.innerHTML = `<h3>Option ${String.fromCharCode(65 + i)}:</h3>`;
+            div.appendChild(canvas);
+            optionsContainer.appendChild(div);
+          });
+        } else {
+          alert('Could not find exactly 4 options starting with A., B., C., and D.');
         }
-
-        function createCroppedImage(img, x, y, width, height, canvas, ctx, label) {
-            canvas.width = width;
-            canvas.height = height;
-            ctx.drawImage(img, x, y, width, height, 0, 0, width, height);
-
-            const imgElement = document.createElement("img");
-            imgElement.src = canvas.toDataURL("image/png");
-            imgElement.alt = label;
-
-            const caption = document.createElement("p");
-            caption.textContent = label;
-            caption.style.fontWeight = "bold";
-
-            const outputDiv = document.getElementById("output");
-            outputDiv.appendChild(caption);
-            outputDiv.appendChild(imgElement);
-        }
-    </script>
+      };
+    });
+  </script>
 </body>
 </html>
