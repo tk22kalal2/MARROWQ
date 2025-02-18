@@ -1,109 +1,69 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Split Options from Image</title>
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      margin: 20px;
-    }
-    canvas {
-      border: 1px solid #ddd;
-      margin-top: 20px;
-    }
-    .options {
-      margin-top: 20px;
-    }
-    .option {
-      margin-bottom: 20px;
-    }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Option Splitter</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/4.0.2/tesseract.min.js"></script>
 </head>
 <body>
-  <h1>Upload Image to Extract Options</h1>
-  <input type="file" id="imageInput" accept="image/*">
-  <button id="startButton">Start Processing</button>
-  <canvas id="imageCanvas"></canvas>
-  <div class="options" id="optionsContainer"></div>
+    <h2>Upload Question Image to Detect Options</h2>
+    <input type="file" id="imageUpload" accept="image/*">
+    <button onclick="processImage()">Start Processing</button>
+    <div id="output"></div>
 
-  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@v2.1.1/dist/tesseract.min.js"></script>
-  <script>
-    const imageInput = document.getElementById('imageInput');
-    const startButton = document.getElementById('startButton');
-    const imageCanvas = document.getElementById('imageCanvas');
-    const optionsContainer = document.getElementById('optionsContainer');
+    <script>
+        function processImage() {
+            const input = document.getElementById('imageUpload');
+            if (!input.files.length) return alert("Please upload an image!");
+            
+            const img = new Image();
+            const file = input.files[0];
+            const reader = new FileReader();
 
-    const ctx = imageCanvas.getContext('2d');
+            reader.onload = function(e) {
+                img.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
 
-    let uploadedImage = null;
-
-    imageInput.addEventListener('change', (event) => {
-      const file = event.target.files[0];
-      if (!file) return;
-
-      const img = new Image();
-      img.src = URL.createObjectURL(file);
-
-      img.onload = () => {
-        uploadedImage = img;
-        imageCanvas.width = img.width;
-        imageCanvas.height = img.height;
-        ctx.drawImage(img, 0, 0);
-      };
-    });
-
-    startButton.addEventListener('click', async () => {
-      if (!uploadedImage) {
-        alert('Please upload an image first.');
-        return;
-      }
-
-      const { data: { text } } = await Tesseract.recognize(uploadedImage, 'eng');
-      const lines = text.split('\n');
-
-      // Find lines starting with "A. ", "B. ", "C. ", "D. "
-      const options = [];
-      lines.forEach((line, index) => {
-        if (/^[A-D]\./.test(line)) {
-          options.push({ text: line, index });
+            img.onload = function() {
+                detectOptions(img);
+            };
         }
-      });
 
-      if (options.length === 4) {
-        const optionRegions = options.map((option, i) => {
-          const nextIndex = i < options.length - 1 ? options[i + 1].index : lines.length;
-          const regionText = lines.slice(option.index, nextIndex).join('\n');
-          return { ...option, regionText };
-        });
+        function detectOptions(img) {
+            Tesseract.recognize(img, 'eng').then(({ data }) => {
+                let options = [];
+                let textLines = data.lines;
+                textLines.forEach((line) => {
+                    // Match lines starting with "A.", "B.", "C.", or "D."
+                    if (line.text.match(/^[A-D]\.\s+/)) {
+                        options.push(line.text);
+                    }
+                });
+                displayOptions(options);
+            });
+        }
 
-        optionsContainer.innerHTML = ''; // Clear previous results
+        function displayOptions(options) {
+            let outputDiv = document.getElementById("output");
+            outputDiv.innerHTML = "";
+            
+            if (options.length < 4) {
+                outputDiv.innerHTML = "<p>Not enough options detected (must be 4 options).</p>";
+                return;
+            }
 
-        optionRegions.forEach((region, i) => {
-          const canvas = document.createElement('canvas');
-          const regionHeight = imageCanvas.height / lines.length * (region.regionText.split('\n').length);
-          const yStart = imageCanvas.height / lines.length * region.index;
+            // Display the detected options
+            let list = document.createElement("ul");
+            options.forEach(option => {
+                let listItem = document.createElement("li");
+                listItem.textContent = option;
+                list.appendChild(listItem);
+            });
 
-          canvas.width = imageCanvas.width;
-          canvas.height = regionHeight;
-          const context = canvas.getContext('2d');
-          context.drawImage(
-            imageCanvas,
-            0, yStart, imageCanvas.width, regionHeight,
-            0, 0, canvas.width, canvas.height
-          );
-
-          const div = document.createElement('div');
-          div.classList.add('option');
-          div.innerHTML = `<h3>Option ${String.fromCharCode(65 + i)}:</h3>`;
-          div.appendChild(canvas);
-          optionsContainer.appendChild(div);
-        });
-      } else {
-        alert('Could not find exactly 4 options starting with A., B., C., and D.');
-      }
-    });
-  </script>
+            outputDiv.appendChild(list);
+        }
+    </script>
 </body>
 </html>
