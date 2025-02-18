@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Option Splitter</title>
+    <title>Option Splitter and Crop</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/4.0.2/tesseract.min.js"></script>
 </head>
 <body>
-    <h2>Upload Question Image to Detect Options</h2>
+    <h2>Upload Question Image to Detect and Crop Options</h2>
     <input type="file" id="imageUpload" accept="image/*">
     <button onclick="processImage()">Start Processing</button>
     <div id="output"></div>
@@ -27,42 +27,59 @@
             reader.readAsDataURL(file);
 
             img.onload = function() {
-                detectOptions(img);
+                detectOptionsAndCrop(img);
             };
         }
 
-        function detectOptions(img) {
+        function detectOptionsAndCrop(img) {
             Tesseract.recognize(img, 'eng').then(({ data }) => {
                 let options = [];
+                let positions = [];
                 let textLines = data.lines;
-                textLines.forEach((line) => {
-                    // Match lines starting with "A.", "B.", "C.", or "D."
+
+                // Detect options A, B, C, D and record their positions
+                textLines.forEach((line, index) => {
                     if (line.text.match(/^[A-D]\.\s+/)) {
                         options.push(line.text);
+                        positions.push(line.bbox.y0);
                     }
                 });
-                displayOptions(options);
+
+                if (options.length >= 4) {
+                    // We found all 4 options: A, B, C, D
+                    let yA = positions[0];  // Y-coordinate of A.
+                    let yD = positions[3];  // Y-coordinate of D.
+
+                    cropImage(img, yA, yD);
+                } else {
+                    alert("Not all options (A, B, C, D) detected.");
+                }
             });
         }
 
-        function displayOptions(options) {
-            let outputDiv = document.getElementById("output");
+        function cropImage(img, yA, yD) {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            const outputDiv = document.getElementById("output");
             outputDiv.innerHTML = "";
-            
-            if (options.length < 4) {
-                outputDiv.innerHTML = "<p>Not enough options detected (must be 4 options).</p>";
-                return;
-            }
 
-            // Display the detected options
-            let list = document.createElement("ul");
-            options.forEach(option => {
-                let listItem = document.createElement("li");
-                listItem.textContent = option;
-                list.appendChild(listItem);
-            });
+            // Set canvas dimensions to the cropped section
+            canvas.width = img.width;
+            canvas.height = yD - yA;
 
-            outputDiv.appendChild(list);
+            // Draw the cropped section of the image
+            ctx.drawImage(img, 0, yA, img.width, yD - yA, 0, 0, img.width, yD - yA);
+
+            // Convert the canvas to a Data URL (image preview)
+            let imgUrl = canvas.toDataURL("image/png");
+
+            // Create an img element to display the cropped image
+            let imgElement = document.createElement("img");
+            imgElement.src = imgUrl;
+            imgElement.style = "display: block; margin-top: 10px; width: 100%; max-width: 500px;";
+
+            // Append the cropped image to the output
+            outputDiv.appendChild(imgElement);
         }
     </script>
 </body>
