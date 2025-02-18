@@ -24,73 +24,85 @@
 <body>
   <h1>Upload Image to Extract Options</h1>
   <input type="file" id="imageInput" accept="image/*">
+  <button id="startButton">Start Processing</button>
   <canvas id="imageCanvas"></canvas>
   <div class="options" id="optionsContainer"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@v2.1.1/dist/tesseract.min.js"></script>
   <script>
     const imageInput = document.getElementById('imageInput');
+    const startButton = document.getElementById('startButton');
     const imageCanvas = document.getElementById('imageCanvas');
     const optionsContainer = document.getElementById('optionsContainer');
 
     const ctx = imageCanvas.getContext('2d');
 
-    imageInput.addEventListener('change', async (event) => {
+    let uploadedImage = null;
+
+    imageInput.addEventListener('change', (event) => {
       const file = event.target.files[0];
       if (!file) return;
 
       const img = new Image();
       img.src = URL.createObjectURL(file);
 
-      img.onload = async () => {
+      img.onload = () => {
+        uploadedImage = img;
         imageCanvas.width = img.width;
         imageCanvas.height = img.height;
         ctx.drawImage(img, 0, 0);
+      };
+    });
 
-        const { data: { text } } = await Tesseract.recognize(img, 'eng');
-        const lines = text.split('\n');
+    startButton.addEventListener('click', async () => {
+      if (!uploadedImage) {
+        alert('Please upload an image first.');
+        return;
+      }
 
-        // Find lines starting with "A. ", "B. ", "C. ", "D. "
-        const options = [];
-        lines.forEach((line, index) => {
-          if (/^[A-D]\./.test(line)) {
-            options.push({ text: line, index });
-          }
+      const { data: { text } } = await Tesseract.recognize(uploadedImage, 'eng');
+      const lines = text.split('\n');
+
+      // Find lines starting with "A. ", "B. ", "C. ", "D. "
+      const options = [];
+      lines.forEach((line, index) => {
+        if (/^[A-D]\./.test(line)) {
+          options.push({ text: line, index });
+        }
+      });
+
+      if (options.length === 4) {
+        const optionRegions = options.map((option, i) => {
+          const nextIndex = i < options.length - 1 ? options[i + 1].index : lines.length;
+          const regionText = lines.slice(option.index, nextIndex).join('\n');
+          return { ...option, regionText };
         });
 
-        if (options.length === 4) {
-          const optionRegions = options.map((option, i) => {
-            const nextIndex = i < options.length - 1 ? options[i + 1].index : lines.length;
-            const regionText = lines.slice(option.index, nextIndex).join('\n');
-            return { ...option, regionText };
-          });
+        optionsContainer.innerHTML = ''; // Clear previous results
 
-          optionsContainer.innerHTML = ''; // Clear previous results
+        optionRegions.forEach((region, i) => {
+          const canvas = document.createElement('canvas');
+          const regionHeight = imageCanvas.height / lines.length * (region.regionText.split('\n').length);
+          const yStart = imageCanvas.height / lines.length * region.index;
 
-          optionRegions.forEach((region, i) => {
-            const canvas = document.createElement('canvas');
-            const regionHeight = imageCanvas.height / lines.length * (region.regionText.split('\n').length);
-            const yStart = imageCanvas.height / lines.length * region.index;
+          canvas.width = imageCanvas.width;
+          canvas.height = regionHeight;
+          const context = canvas.getContext('2d');
+          context.drawImage(
+            imageCanvas,
+            0, yStart, imageCanvas.width, regionHeight,
+            0, 0, canvas.width, canvas.height
+          );
 
-            canvas.width = imageCanvas.width;
-            canvas.height = regionHeight;
-            const context = canvas.getContext('2d');
-            context.drawImage(
-              imageCanvas,
-              0, yStart, imageCanvas.width, regionHeight,
-              0, 0, canvas.width, canvas.height
-            );
-
-            const div = document.createElement('div');
-            div.classList.add('option');
-            div.innerHTML = `<h3>Option ${String.fromCharCode(65 + i)}:</h3>`;
-            div.appendChild(canvas);
-            optionsContainer.appendChild(div);
-          });
-        } else {
-          alert('Could not find exactly 4 options starting with A., B., C., and D.');
-        }
-      };
+          const div = document.createElement('div');
+          div.classList.add('option');
+          div.innerHTML = `<h3>Option ${String.fromCharCode(65 + i)}:</h3>`;
+          div.appendChild(canvas);
+          optionsContainer.appendChild(div);
+        });
+      } else {
+        alert('Could not find exactly 4 options starting with A., B., C., and D.');
+      }
     });
   </script>
 </body>
