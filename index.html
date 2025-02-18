@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Question Splitter</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/4.0.2/tesseract.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            text-align: center;
+        }
+        #output img {
+            display: block;
+            margin: 10px auto;
+            max-width: 80%;
+            border: 1px solid #ccc;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        #output p {
+            margin-top: 10px;
+            font-size: 16px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <h2>Upload Screenshot to Split Questions</h2>
+    <input type="file" id="imageUpload" accept="image/*">
+    <button onclick="processImage()">Start Processing</button>
+    <div id="output"></div>
+
+    <script>
+        function processImage() {
+            const input = document.getElementById('imageUpload');
+            if (!input.files.length) return alert("Please upload an image!");
+            
+            const img = new Image();
+            const file = input.files[0];
+            const reader = new FileReader();
+
+            reader.onload = function(e) {
+                console.log("FileReader loaded:", e.target.result);
+                img.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+
+            img.onload = function() {
+                console.log("Image loaded for processing.");
+                detectOptions(img);
+            };
+        }
+
+        function detectOptions(img) {
+            Tesseract.recognize(img, 'eng')
+                .then(({ data }) => {
+                    console.log("OCR Data:", data);
+                    let positions = { above: null, optionsStart: null, optionsEnd: null, below: null };
+                    let lines = data.lines;
+
+                    console.log("Detected Lines:", lines);
+
+                    for (let i = 0; i < lines.length; i++) {
+                        const text = lines[i].text.trim();
+                        if (text.match(/^A\.\s+/)) {
+                            positions.optionsStart = lines[i].bbox.y0;
+                        } else if (positions.optionsStart && text.match(/^D\.\s+/)) {
+                            positions.optionsEnd = lines[i].bbox.y1;
+                        }
+                    }
+
+                    if (positions.optionsStart !== null && positions.optionsEnd !== null) {
+                        console.log("Positions:", positions);
+                        splitImage(img, positions);
+                    } else {
+                        alert("Could not detect all options (A., B., C., D.). Please check the image.");
+                    }
+                })
+                .catch(error => console.error("Tesseract error:", error));
+        }
+
+        function splitImage(img, positions) {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            let outputDiv = document.getElementById("output");
+            outputDiv.innerHTML = "";
+
+            console.log("Splitting Image with positions:", positions);
+
+            // Part 1: Above options
+            if (positions.optionsStart !== null) {
+                createCroppedImage(img, 0, 0, img.width, positions.optionsStart, canvas, ctx, "Above Options");
+            }
+
+            // Part 2: Options A. to D.
+            if (positions.optionsStart !== null && positions.optionsEnd !== null) {
+                createCroppedImage(img, 0, positions.optionsStart, img.width, positions.optionsEnd - positions.optionsStart, canvas, ctx, "Options A. to D.");
+            }
+
+            // Part 3: Below options
+            if (positions.optionsEnd !== null) {
+                createCroppedImage(img, 0, positions.optionsEnd, img.width, img.height - positions.optionsEnd, canvas, ctx, "Below Options");
+            }
+        }
+
+        function createCroppedImage(img, x, y, width, height, canvas, ctx, label) {
+            canvas.width = width;
+            canvas.height = height;
+            ctx.drawImage(img, x, y, width, height, 0, 0, width, height);
+
+            const imgElement = document.createElement("img");
+            imgElement.src = canvas.toDataURL("image/png");
+            imgElement.alt = label;
+
+            const caption = document.createElement("p");
+            caption.textContent = label;
+            caption.style.fontWeight = "bold";
+
+            const outputDiv = document.getElementById("output");
+            outputDiv.appendChild(caption);
+            outputDiv.appendChild(imgElement);
+        }
+    </script>
+</body>
+</html>
