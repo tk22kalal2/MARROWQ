@@ -42,67 +42,89 @@
             const reader = new FileReader();
 
             reader.onload = function(e) {
-                console.log("FileReader loaded:", e.target.result);
                 img.src = e.target.result;
             };
             reader.readAsDataURL(file);
 
             img.onload = function() {
-                console.log("Image loaded for processing.");
                 detectOptions(img);
             };
         }
 
         function detectOptions(img) {
-            Tesseract.recognize(img, 'eng')
-                .then(({ data }) => {
-                    console.log("OCR Data:", data);
-                    let positions = { above: null, optionsStart: null, optionsEnd: null, below: null };
-                    let lines = data.lines;
+            // Use Tesseract.js with custom OCR settings
+            Tesseract.recognize(img, 'eng', {
+                logger: info => console.log(info),
+                tessedit_pageseg_mode: 4, // PSM: Assume single-column text
+            })
+            .then(({ data }) => {
+                console.log("OCR Data:", data);
+                let lines = data.lines.map(line => ({
+                    text: line.text.trim(),
+                    y0: line.bbox.y0,
+                    y1: line.bbox.y1,
+                }));
+                console.log("Processed Lines:", lines);
 
-                    console.log("Detected Lines:", lines);
+                // Detect options A., B., C., D.
+                const options = detectOptionPositions(lines);
+                if (options) {
+                    splitImage(img, options);
+                } else {
+                    alert("Could not detect all options (A., B., C., D.). Please check the image.");
+                }
+            })
+            .catch(error => console.error("Tesseract error:", error));
+        }
 
-                    for (let i = 0; i < lines.length; i++) {
-                        const text = lines[i].text.trim();
-                        if (text.match(/^A\.\s+/)) {
-                            positions.optionsStart = lines[i].bbox.y0;
-                        } else if (positions.optionsStart && text.match(/^D\.\s+/)) {
-                            positions.optionsEnd = lines[i].bbox.y1;
-                        }
-                    }
+        function detectOptionPositions(lines) {
+            const optionRegex = /^[A-D]\.\s+/;
+            const detectedOptions = [];
 
-                    if (positions.optionsStart !== null && positions.optionsEnd !== null) {
-                        console.log("Positions:", positions);
-                        splitImage(img, positions);
-                    } else {
-                        alert("Could not detect all options (A., B., C., D.). Please check the image.");
-                    }
-                })
-                .catch(error => console.error("Tesseract error:", error));
+            for (let line of lines) {
+                if (line.text.match(optionRegex)) {
+                    detectedOptions.push(line);
+                }
+            }
+
+            // Ensure all four options (A., B., C., D.) are detected in sequence
+            if (detectedOptions.length === 4) {
+                const yPositions = detectedOptions.map(opt => opt.y0);
+                if (isVerticallyAligned(yPositions)) {
+                    return {
+                        above: lines[0].y0,
+                        optionsStart: detectedOptions[0].y0,
+                        optionsEnd: detectedOptions[3].y1,
+                        below: lines[lines.length - 1].y1,
+                    };
+                }
+            }
+            return null;
+        }
+
+        function isVerticallyAligned(yPositions) {
+            for (let i = 0; i < yPositions.length - 1; i++) {
+                if (yPositions[i + 1] <= yPositions[i]) {
+                    return false;
+                }
+            }
+            return true;
         }
 
         function splitImage(img, positions) {
             const canvas = document.createElement('canvas');
             const ctx = canvas.getContext('2d');
-            let outputDiv = document.getElementById("output");
+            const outputDiv = document.getElementById("output");
             outputDiv.innerHTML = "";
 
-            console.log("Splitting Image with positions:", positions);
-
             // Part 1: Above options
-            if (positions.optionsStart !== null) {
-                createCroppedImage(img, 0, 0, img.width, positions.optionsStart, canvas, ctx, "Above Options");
-            }
+            createCroppedImage(img, 0, 0, img.width, positions.optionsStart, canvas, ctx, "Above Options");
 
             // Part 2: Options A. to D.
-            if (positions.optionsStart !== null && positions.optionsEnd !== null) {
-                createCroppedImage(img, 0, positions.optionsStart, img.width, positions.optionsEnd - positions.optionsStart, canvas, ctx, "Options A. to D.");
-            }
+            createCroppedImage(img, 0, positions.optionsStart, img.width, positions.optionsEnd - positions.optionsStart, canvas, ctx, "Options A. to D.");
 
             // Part 3: Below options
-            if (positions.optionsEnd !== null) {
-                createCroppedImage(img, 0, positions.optionsEnd, img.width, img.height - positions.optionsEnd, canvas, ctx, "Below Options");
-            }
+            createCroppedImage(img, 0, positions.optionsEnd, img.width, img.height - positions.optionsEnd, canvas, ctx, "Below Options");
         }
 
         function createCroppedImage(img, x, y, width, height, canvas, ctx, label) {
