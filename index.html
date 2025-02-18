@@ -7,7 +7,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/4.0.2/tesseract.min.js"></script>
 </head>
 <body>
-    <h2>Upload Question Image to Detect and Crop Options</h2>
+    <h2>Upload Question Image to Detect and Crop Options A. and D.</h2>
     <input type="file" id="imageUpload" accept="image/*">
     <button onclick="processImage()">Start Processing</button>
     <div id="output"></div>
@@ -33,26 +33,32 @@
 
         function detectOptionsAndCrop(img) {
             Tesseract.recognize(img, 'eng').then(({ data }) => {
-                let options = [];
                 let positions = [];
                 let textLines = data.lines;
+                let aDetected = false;
+                let dDetected = false;
 
-                // Detect options A, B, C, D and record their positions
-                textLines.forEach((line, index) => {
-                    if (line.text.match(/^[A-D]\.\s+/)) {
-                        options.push(line.text);
-                        positions.push(line.bbox.y0);
+                // Detect "A." and "D." and record their positions
+                textLines.forEach((line) => {
+                    // Check if the line starts with "A." or "D."
+                    if (line.text.match(/^A\.\s+/)) {
+                        positions.push({ option: 'A', y: line.bbox.y0 });
+                        aDetected = true;
+                    }
+                    if (line.text.match(/^D\.\s+/)) {
+                        positions.push({ option: 'D', y: line.bbox.y0 });
+                        dDetected = true;
                     }
                 });
 
-                if (options.length >= 4) {
-                    // We found all 4 options: A, B, C, D
-                    let yA = positions[0];  // Y-coordinate of A.
-                    let yD = positions[3];  // Y-coordinate of D.
+                if (aDetected && dDetected) {
+                    // If both A. and D. are detected, crop between them
+                    let yA = positions.find(item => item.option === 'A').y; // Y-coordinate of A.
+                    let yD = positions.find(item => item.option === 'D').y; // Y-coordinate of D.
 
                     cropImage(img, yA, yD);
                 } else {
-                    alert("Not all options (A, B, C, D) detected.");
+                    alert("Both 'A.' and 'D.' options must be detected.");
                 }
             });
         }
